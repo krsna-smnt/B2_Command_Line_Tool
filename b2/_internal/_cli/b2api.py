@@ -39,6 +39,7 @@ def _get_b2api_for_profile(
         api_config=_get_b2httpapiconfig(),
         account_info=account_info,
         cache=AuthInfoCache(account_info),
+        stale_bucket_id_policy='evict',  # #567: SDK default stays 'raise' for library users
         **kwargs,
     )
 

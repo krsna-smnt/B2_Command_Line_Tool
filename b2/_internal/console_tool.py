@@ -949,6 +949,17 @@ class _TqdmCloser:
             logger.debug('Error encountered during Tqdm cleanup', exc_info=ex)
 
 
+def _stale_bucket_error(error):
+    """Find an SDK error annotated by stale_bucket_id_policy evict/heal (commands may wrap it)."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if getattr(error, 'stale_bucket_name', None):
+            return error
+        seen.add(id(error))
+        error = error.__cause__ or error.__context__
+    return None
+
+
 class Command(Described, metaclass=ABCMeta):
     COMMAND_NAME: str | None = None
     # Set to True for commands that receive sensitive information in arguments
@@ -5531,7 +5542,19 @@ class ConsoleTool:
             return 1
         except B2Error as e:
             logger.exception('ConsoleTool command error')
-            if isinstance(e, NonExistentBucket):
+            stale = _stale_bucket_error(e)
+            if stale is not None and stale.stale_bucket_key_bound:
+                self._print_stderr(
+                    f'ERROR: bucket {stale.stale_bucket_name!r} (id={stale.bucket_id}) no longer exists '
+                    f'and this application key is restricted to it; create a new key.'
+                )
+            elif stale is not None:
+                self._print_stderr(
+                    f'ERROR: bucket {stale.stale_bucket_name!r} (id={stale.bucket_id}) no longer exists: '
+                    f'it was deleted or recreated since it was cached. The stale cache entry was '
+                    f'removed; re-run the command.'
+                )
+            elif isinstance(e, NonExistentBucket):
                 self._print_stderr(
                     f'Bucket not found: {e.bucket_name}. If you believe it exists, run `{self.b2_binary_name} bucket list` to reset cache, then try again.'
                 )
